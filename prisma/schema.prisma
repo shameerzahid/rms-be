@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           String @id @default(cuid())
+  email        String @unique
+  passwordHash String
+}
+
+model Page {
+  id    String @id
+  title String
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  rating      Int
+  displayName String
+  date        String
+  text        String
+  source      String   @default("admin")
+  pageIds     String   @default("[]")
+  pinned      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
