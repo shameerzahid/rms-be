@@ -2,16 +2,21 @@ import 'dotenv/config'
 import cors from 'cors'
 import express from 'express'
 import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
 import { authRequired, signToken } from './auth.js'
 import { prisma } from './prisma.js'
 import { parsePageIds, serializeReview } from './reviews.js'
+import { loadShopifyPages } from './shopify.js'
+import { publicRoutes } from './publicRoutes.js'
 
 const app = express()
 const port = Number(process.env.PORT) || 4000
 
-app.use(cors({ origin: true }))
-app.use(express.json())
+const corsOrigin = process.env.CORS_ORIGIN || true
+app.set('trust proxy', 1)
+app.use(express.json({ limit: '20kb' }))
+// Storefront (Shopify) routes: open CORS, no auth, strictly limited — see publicRoutes.js
+app.use('/api/public', cors(), publicRoutes)
+app.use(cors({ origin: corsOrigin === 'true' ? true : corsOrigin }))
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true })
@@ -43,17 +48,41 @@ app.get('/api/pages', async (_req, res) => {
   res.json(pages)
 })
 
-app.get('/api/reviews', async (_req, res) => {
+app.post('/api/shopify/sync', authRequired, async (_req, res) => {
+  try {
+    const pages = await loadShopifyPages()
+    for (const page of pages) {
+      await prisma.page.upsert({
+        where: { id: page.id },
+        update: { title: page.title },
+        create: page,
+      })
+    }
+
+    const seedIds = [
+      'skin-glow-serum-p',
+      'skin-glow-serum-l',
+      'zafrani-facial-cream-p',
+      'zafrani-facial-cream-l',
+    ]
+    await prisma.page.deleteMany({ where: { id: { in: seedIds } } })
+
+    res.json({ count: pages.length, pages })
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Shopify sync failed' })
+  }
+})
+
+app.get('/api/reviews', authRequired, async (_req, res) => {
   const rows = await prisma.review.findMany({ orderBy: { createdAt: 'desc' } })
   res.json(rows.map(serializeReview))
 })
 
-app.post('/api/reviews', async (req, res) => {
+app.post('/api/reviews', authRequired, async (req, res) => {
   const rating = Number(req.body?.rating)
   const displayName = String(req.body?.displayName || '').trim()
   const date = String(req.body?.date || '').trim()
   const text = String(req.body?.text || '').trim()
-  const source = req.body?.source === 'customer' ? 'customer' : 'admin'
   const pageIds = parsePageIds(req.body?.pageIds)
 
   if (!rating || rating < 1 || rating > 5) {
@@ -63,24 +92,13 @@ app.post('/api/reviews', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' })
   }
 
-  if (source === 'admin') {
-    const header = req.headers.authorization || ''
-    const token = header.startsWith('Bearer ') ? header.slice(7) : null
-    try {
-      if (!token) throw new Error('no token')
-      jwt.verify(token, process.env.JWT_SECRET || 'rms-dev-secret-change-me')
-    } catch {
-      return res.status(401).json({ error: 'Unauthorized' })
-    }
-  }
-
   const row = await prisma.review.create({
     data: {
       rating,
       displayName,
       date,
       text,
-      source,
+      source: 'admin',
       pageIds: JSON.stringify(pageIds),
       pinned: false,
     },
@@ -131,6 +149,11 @@ app.delete('/api/reviews/:id', authRequired, async (req, res) => {
   }
 })
 
-app.listen(port, () => {
-  console.log(`RMS API on http://localhost:${port}`)
-})
+// Vercel runs this file as a serverless function (no listen).
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`RMS API on http://localhost:${port}`)
+  })
+}
+
+export default app
