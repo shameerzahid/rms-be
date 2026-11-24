@@ -12,8 +12,11 @@ const PAGES = [
 ]
 
 async function main() {
-  const email = process.env.ADMIN_EMAIL || 'admin@company.com'
-  const password = process.env.ADMIN_PASSWORD || 'admin123'
+  const email = process.env.ADMIN_EMAIL
+  const password = process.env.ADMIN_PASSWORD
+  if (!email || !password) {
+    throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD before seeding')
+  }
   const passwordHash = await bcrypt.hash(password, 10)
 
   await prisma.admin.upsert({

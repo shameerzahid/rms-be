@@ -15,9 +15,6 @@ npm run dev
 
 API runs on `http://localhost:4000`.
 
-## Demo admin
+## Admin login
 
-Set in `.env` (defaults):
-
-- `ADMIN_EMAIL=admin@company.com`
-- `ADMIN_PASSWORD=admin123`
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` (no defaults), then run `npm run db:seed`.
